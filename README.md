@@ -1,2 +1,2 @@
 # sql-server
- scripts uteis para sql server 
+ Scripts úteis para o dia-a-dia
