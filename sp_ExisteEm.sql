@@ -8,12 +8,13 @@ IF ( OBJECT_ID('sp_ExisteEm') IS NOT NULL )
 
 CREATE PROCEDURE [dbo].[sp_ExisteEm]
 (
-    @Objeto VARCHAR(512) --nome do objeto que está procurando
+    @Objeto         VARCHAR(512)        --busca pelo objeto
+   ,@FiltroDataBase VARCHAR(512) = NULL --opção de busca por database 
+   ,@FiltroSchema   VARCHAR(512) = NULL --opção de busca por schema
 )
 AS
 BEGIN
 /*
-
     =================================================================
     SQL - Procedure sp_ExisteEm
     =================================================================
@@ -38,6 +39,7 @@ BEGIN
     END
     CREATE TABLE tempdb..##lista_banco_localizado(
         [nome_do_banco] [nvarchar](128) NULL,
+        [schema] [nvarchar](50),
         [name] [sysname] NULL,
         [id] [int]  NULL,
         [xtype] [char](2)  NULL,
@@ -86,8 +88,19 @@ BEGIN
     SET @vs_sql = ''
 
     --Script para criar tabelas onde foram encontrados registros
-    SET @vs_sql = 'select db_name() as [nome_do_banco], * into tempdbm..##lista_banco_? From ?..sysobjects where name like ''%'+ @Objeto+'%'''
-    
+    SET @vs_sql = 
+    ' select db_name() as [nome_do_banco]
+           , c.name [schema] 
+           , a.* 
+        into tempdbm..##lista_banco_? 
+        From ?..sysobjects      A WITH(NOLOCK)
+        LEFT JOIN ?.sys.objects B WITH(NOLOCK)
+          ON A.[id]             = B.[object_id] 
+        LEFT JOIN ?.sys.schemas C 
+          ON B.schema_id        = C.schema_id 
+       WHERE a.name like        ''%'+ @Objeto+'%''
+    '
+
     --Realiza o loop em todos os bancos
     exec sp_MSforeachdb @vs_sql
 
@@ -97,12 +110,12 @@ BEGIN
     where name like '##lista_banco_%'
        and name != '##lista_banco_localizado'
 
-    OPEN cr_lista
+     OPEN cr_lista
 
-    FETCH NEXT FROM cr_lista INTO @vs_nome
+     FETCH NEXT FROM cr_lista INTO @vs_nome
 
-    WHILE (@@FETCH_STATUS = 0)
-    BEGIN
+     WHILE (@@FETCH_STATUS = 0)
+     BEGIN
         
         SET @vs_coluna = ''
         SET @vs_coluna =  LTRIM(RTRIM(REPLACE(convert(varchar(50),@vs_nome),'##lista_banco_','')))
@@ -121,10 +134,9 @@ BEGIN
         EXECUTE (@vs_sql)
         
         FETCH NEXT FROM cr_lista INTO @vs_nome
-    END
-    CLOSE cr_lista
-    DEALLOCATE cr_lista
-
+     END
+     CLOSE cr_lista
+     DEALLOCATE cr_lista
      
     --2 - Views
     --3 - Trigger 
@@ -132,16 +144,20 @@ BEGIN
     --5 - Procedures
     -- Verifica dentro de procedures, views, trigger e funções
     SET @vs_sql = 
-    'SELECT 
-        db_name() as [nome_do_banco]
-        ,sysobjects.xtype
-        ,sysobjects.Name Nome
-        into tempdb..##lista_banco_?
-    FROM 
-        ?..syscomments (nolock) 
-        Inner Join ?..sysobjects (nolock) On sysobjects.ID = syscomments.ID
-    Where 
-        syscomments.text like ''%' + LTRIM(RTRIM(@Objeto)) + '%'''
+    'SELECT db_name() as [nome_do_banco]
+          , d.name as [schema]
+          , b.xtype
+          , b.Name Nome
+       into tempdb..##lista_banco_?
+       FROM ?..syscomments      a with(nolock) 
+      Inner Join ?..sysobjects  b with(nolock) 
+         On a.ID                = b.ID
+       LEFT JOIN ?.sys.objects  c with(nolock) 
+         ON b.[id]              = c.[object_id] 
+       LEFT JOIN ?.sys.schemas  d with(nolock) 
+         ON c.schema_id         = d.schema_id
+      Where a.text              like ''%' + LTRIM(RTRIM(@Objeto)) + '%''
+    '
     
     --Realiza o loop em todos os bancos
     exec sp_MSforeachdb @vs_sql
@@ -169,7 +185,7 @@ BEGIN
         EXECUTE (@vs_sql)    
 
         SET @vs_sql = ''
-        SET @vs_sql = 'INSERT INTO tempdb..##lista_banco_localizado (nome_do_banco,xtype,name) SELECT [nome_do_banco],xtype,Nome FROM ' +@vs_nome + ' WHERE nome_do_banco IS NOT NULL'
+        SET @vs_sql = 'INSERT INTO tempdb..##lista_banco_localizado (nome_do_banco,[schema],xtype,name) SELECT [nome_do_banco],[schema],xtype,Nome FROM ' +@vs_nome + ' WHERE nome_do_banco IS NOT NULL'
         EXECUTE (@vs_sql)
         
         SET @vs_sql = ' DROP TABLE '+@vs_nome
@@ -184,15 +200,19 @@ BEGIN
     --6 - Colunas
     --Verifica em nomes de colunas
     SET @vs_sql = 
-    'SELECT 
-        db_name() as [nome_do_banco]
-        ,sysobjects.xtype
-        ,sysobjects.Name Nome
-        into tempdb..##lista_banco_?
-    FROM 
-        ?..syscolumns (nolock)  Inner Join 
-        ?..sysobjects (nolock) On sysobjects.ID = syscolumns.ID
-    Where  syscolumns.name like ''%' + LTRIM(RTRIM(@Objeto)) + '%'''
+    'SELECT db_name() as [nome_do_banco]
+          , d.name as [schema]
+          , b.xtype
+          , b.Name Nome
+       into tempdb..##lista_banco_?
+       FROM ?..syscolumns       a (nolock)  
+      Inner Join ?..sysobjects  b (nolock) 
+         On a.ID                = b.ID
+       LEFT JOIN ?.sys.objects  c 
+         ON b.[id]              = c.[object_id] 
+       LEFT JOIN ?.sys.schemas  d 
+         ON c.schema_id         = d.schema_id
+      Where a.name              like ''%' + LTRIM(RTRIM(@Objeto)) + '%'''
     
     --Realiza o loop em todos os bancos
     exec sp_MSforeachdb @vs_sql
@@ -220,7 +240,7 @@ BEGIN
         EXECUTE (@vs_sql)    
 
         SET @vs_sql = ''
-        SET @vs_sql = 'INSERT INTO tempdb..##lista_banco_localizado (nome_do_banco,xtype,name) SELECT [nome_do_banco],xtype,Nome FROM ' +@vs_nome + ' WHERE nome_do_banco IS NOT NULL'
+        SET @vs_sql = 'INSERT INTO tempdb..##lista_banco_localizado (nome_do_banco,[schema],xtype,name) SELECT [nome_do_banco],[schema],xtype,Nome FROM ' +@vs_nome + ' WHERE nome_do_banco IS NOT NULL'
         EXECUTE (@vs_sql)
         
         SET @vs_sql = ' DROP TABLE '+@vs_nome
@@ -230,7 +250,7 @@ BEGIN
      END
      CLOSE cr_lista
      DEALLOCATE cr_lista
-
+     
      
      --Novidade
      --7 - Jobs Sql Agent
@@ -238,11 +258,13 @@ BEGIN
      SET @vs_sql = ''
         SET @vs_sql = '
      INSERT INTO tempdb..##lista_banco_localizado (nome_do_banco,xtype,name)
-     SELECT a.name, ''J'',b.step_name
-       FROM 
-        msdb..sysjobs a
-        inner join msdb..sysjobsteps b on ( a.job_id = b.job_id )
-     WHERE b.command like ''%' + LTRIM(RTRIM(@Objeto)) + '%'''
+     SELECT a.name
+          , ''J''
+          , b.step_name
+       FROM msdb..sysjobs           a
+      inner join msdb..sysjobsteps  b
+         on a.job_id                = b.job_id )
+      WHERE b.command               like ''%' + LTRIM(RTRIM(@Objeto)) + '%'''
     
     begin try
         EXECUTE (@vs_sql)
@@ -250,22 +272,31 @@ BEGIN
     begin catch
         print 'Erro ao tentar ver os jobs agendados'
     end catch
-    
+    SET @vs_sql = ''
+    SET @vs_sql = '
     SELECT DISTINCT 
-        NomeBanco    = nome_do_banco
-        ,NomeTabela = name
-        ,Tipo = Case
-          WHEN (xtype = 'P')  THEN 'Stored Procedure'
-          WHEN (xtype = 'V')  THEN 'View'
-          WHEN (xType = 'TR') THEN 'Trigger'
-          WHEN (xType = 'FN') THEN 'Função'
-          WHEN (xType = 'U')  THEN 'Tabela'
-          WHEN (xType = 'J')  THEN 'Job' --Novidade
-          ELSE 'Outros' end 
-    FROM 
-        tempdb..##lista_banco_localizado
-    ORDER BY nome_do_banco,Tipo Desc,name
+           NomeBanco    = A.nome_do_banco
+         , A.[schema]
+         , NomeTabela   = A.name
+         , Tipo         = Case
+                              WHEN (xtype = ''P'' )  THEN ''Stored Procedure''
+                              WHEN (xtype = ''V'' )  THEN ''View''
+                              WHEN (xType = ''TR'')  THEN ''Trigger''
+                              WHEN (xType = ''FN'')  THEN ''Função''
+                              WHEN (xType = ''U'' )  THEN ''Tabela''
+                              WHEN (xType = ''J'' )  THEN ''Job''
+                              ELSE ''Outros''
+                          end
+      FROM tempdb..##lista_banco_localizado A
+     WHERE 1=1'
+    IF @FiltroSchema IS NOT NULL
+        SET @vs_sql = @vs_sql + ' AND [schema] = '+''''+@FiltroSchema+''''+' '
+    IF @FiltroDataBase IS NOT NULL 
+        SET @vs_sql = @vs_sql + ' AND nome_do_banco = '+''''+@FiltroDataBase+''''+' '
+    
+    SET @vs_sql = @vs_sql + ' ORDER BY 1,2,3 desc,4'
 
+    execute(@vs_sql)
 
     DROP TABLE tempdb..##lista_banco_localizado
 
@@ -280,4 +311,3 @@ BEGIN
         print 'Tabelas apagadas'
     end catch
 END
-GO
